@@ -48,10 +48,19 @@ def replace_background(
 
     print("Caption:", caption)
 
+    # Debug
+    prompt_caption = f'Positive prompt: {positive_prompt}\n' + \
+      f'Negative prompt: {negative_prompt}\n' + \
+      f'Derived caption: {caption}'
+    with open("debug/prompts_and_caption.txt", "w") as f:
+      f.write(prompt_caption)
+
     torch.cuda.empty_cache()
+    original.save('debug/1_original.png') # Debug
 
     print(f"Ensuring resolution ({MEGAPIXELS}MP)...")
     resized = ensure_resolution(original, megapixels=MEGAPIXELS)
+    resized.save("debug/2_resized.png") # Debug
     pbar.update(1)
 
     print("Resized size:", resized.size)
@@ -60,12 +69,15 @@ def replace_background(
 
     print("Segmenting...")
     [cropped, crop_mask] = segment(resized)
+    cropped.save("debug/3_1_cropped.png") # Debug
+    crop_mask.save("debug/3_2_crop_mask.png") # Debug
     pbar.update(1)
 
     torch.cuda.empty_cache()
 
     print("Depth mapping...")
     depth_map = get_depth_map(resized)
+    depth_map.save("debug/4_depth_map.png") # Debug
     pbar.update(1)
 
     torch.cuda.empty_cache()
@@ -74,21 +86,26 @@ def replace_background(
 
     # Convert crop mask to grayscale and to numpy array
     crop_mask_np = np.array(crop_mask.convert('L'))
-
+    img = Image.fromarray((crop_mask_np).astype(np.uint8)) # Debug
+    img.save('debug/3_3_crop_mask_np_grey.png') # Debug
     # Convert to binary and dilate (grow) the edges
     # adjust threshold as needed
     crop_mask_binary = crop_mask_np > options.get(
         'depth_map_feather_threshold')
+    img = Image.fromarray((crop_mask_binary * 255).astype(np.uint8)) # Debug
+    img.save('debug/3_4_crop_mask_binary_threshold.png') # Debug
     # adjust iterations as needed
     dilated_mask = binary_dilation(
         crop_mask_binary, iterations=options.get('depth_map_dilation_iterations'))
 
     # Convert back to PIL Image
     dilated_mask = Image.fromarray((dilated_mask * 255).astype(np.uint8))
+    dilated_mask.save('debug/3_5_dilated_mask.png') # Debug
 
     # Apply Gaussian blur and normalize
     dilated_mask_blurred = dilated_mask.filter(
         ImageFilter.GaussianBlur(radius=options.get('depth_map_blur_radius')))
+    dilated_mask_blurred.save('debug/3_6_dilated_mask_blurred.png') # Debug
     dilated_mask_blurred_np = np.array(dilated_mask_blurred) / 255.0
 
     # Normalize depth map, apply blurred, dilated mask, and scale back
@@ -98,7 +115,7 @@ def replace_background(
 
     # Convert back to PIL Image
     masked_depth_map = Image.fromarray(masked_depth_map_np).convert('RGB')
-
+    masked_depth_map.save('debug/5_masked_depth_map.png') # Debug
     pbar.update(1)
 
     final_positive_prompt = f"{caption}, {positive_prompt}, {POSITIVE_PROMPT_SUFFIX}"
@@ -127,6 +144,13 @@ def replace_background(
             crop_centered(cropped, generated_image.size)
         ) for generated_image in generated_images
     ]
+    # Debug
+    for idx, generated_image in enumerate(generated_images):
+        generated_image.save(f'debug/6_background_{idx}.png')
+
+    for idx, generated_image in enumerate(composited_images):
+        generated_image.save(f'debug/7_result_{idx}.png')
+
     pbar.update(1)
     pbar.close()
 
